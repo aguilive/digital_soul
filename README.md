@@ -44,3 +44,4 @@ python app.py
 ├── index.html        # 前端交互界面 (p5.js 粒子特效)
 ├── mnist_cnn.pth     # 预训练好的模型权重
 └── README.md         # 项目文档
+![Demo](screenshot.png)
