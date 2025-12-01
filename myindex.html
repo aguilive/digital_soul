@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数字幻境</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        body {
+            background-color: #111;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            min-height: 100vh;
+            margin: 0;
+        }
+        h1 { margin-bottom: 10px; font-weight: 300; letter-spacing: 2px;}
+        #canvas-container {
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .controls { margin-top: 20px; display: flex; gap: 15px; }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: bold;
+        }
+        .btn-identify { background: linear-gradient(45deg, #00f260, #0575e6); color: white; }
+        .btn-clear { background: linear-gradient(45deg, #ff416c, #ff4b2b); color: white; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        button:active { transform: translateY(0); }
+    </style>
+</head>
+<body>
+    <h1>绘制数字，触发幻境</h1>
+    <div id="canvas-container"></div>
+    
+    <div class="controls">
+        <button class="btn-identify" onclick="sendToAI()">识别并炸裂 (Identify)</button>
+        <button class="btn-clear" onclick="resetSketch()">清空画布 (Clear)</button>
+    </div>
+
+    <script>
+        // ================= 全局变量 =================
+        let particles = []; // 存放所有粒子的数组
+        let gameState = "DRAWING"; // 当前状态: "DRAWING"(画画), "THINKING"(思考中), "RESULT"(展示结果)
+        let resultNumber = -1;
+        let resultConfidence = 0;
+        let drawingLayer; // 一个独立的图层，用来存用户的笔迹
+
+        function setup() {
+            let c = createCanvas(400, 400);
+            c.parent('canvas-container');
+            // 创建一个透明的图层专门用来画画
+            drawingLayer = createGraphics(400, 400);
+            drawingLayer.clear(); 
+            resetSketch();
+        }
+
+        function draw() {
+            background(0, 30); // 重要：带有透明度的背景，制造“拖尾”效果
+
+            if (gameState === "DRAWING") {
+                // 在绘图层上画画
+                drawingLayer.stroke(255);
+                drawingLayer.strokeWeight(24);
+                if (mouseIsPressed) {
+                    drawingLayer.line(pmouseX, pmouseY, mouseX, mouseY);
+                }
+                // 把绘图层显示到主画布上
+                image(drawingLayer, 0, 0);
+                
+            } else if (gameState === "THINKING") {
+                // 思考时的动画：中间显示一个旋转的加载圈
+                push();
+                translate(width/2, height/2);
+                rotate(frameCount * 0.1);
+                noFill(); stroke(0, 255, 255, 150); strokeWeight(4);
+                arc(0, 0, 50, 50, 0, PI * 1.5);
+                pop();
+
+            } else if (gameState === "RESULT") {
+                // 1. 更新并显示所有粒子
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update();
+                    particles[i].show();
+                    if (particles[i].isDead()) {
+                        particles.splice(i, 1); // 删除死掉的粒子
+                    }
+                }
+                // 2. 在中间显示巨大的数字
+                displayBigNumber();
+            }
+        }
+
+        // ================= 交互逻辑 =================
+        function resetSketch() {
+            gameState = "DRAWING";
+            particles = [];
+            drawingLayer.clear();
+            background(0);
+        }
+
+        function sendToAI() {
+            if (gameState !== "DRAWING") return;
+            gameState = "THINKING";
+
+            // 抓取绘图层的图像
+            let dataURL = drawingLayer.elt.toDataURL('image/png');
+
+            // ***【注意：这里记得改成你高配电脑的 IP】***
+            fetch(' https://solomon-zippered-uneffusively.ngrok-free.dev/predict', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: dataURL })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("AI结果:", data);
+                resultNumber = data.number;
+                resultConfidence = data.confidence;
+                gameState = "RESULT";
+                // 触发粒子爆炸！
+                explodeParticles(resultNumber, resultConfidence);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                gameState = "DRAWING"; // 失败回退
+                alert("连接服务器失败，请检查IP或防火墙");
+            });
+        }
+
+        // ================= 艺术效果核心逻辑 =================
+
+        // 触发爆炸：根据数字和置信度生成粒子
+        function explodeParticles(num, conf) {
+            // 切换到 HSB 色彩模式，方便用置信度控制颜色 (Hue, Saturation, Brightness)
+            colorMode(HSB, 360, 100, 100, 100);
+            let centerX = width / 2;
+            let centerY = height / 2;
+            
+            // 决定爆炸点的数量：数字是几，就炸几个点（0特殊处理为1个大点）
+            let burstPoints = num === 0 ? 1 : num;
+            // 决定每个点炸出多少粒子：置信度越高，粒子越多
+            let particlesPerBurst = map(conf, 0, 1, 20, 100);
+
+            for (let i = 0; i < burstPoints; i++) {
+                // 计算爆炸中心点（围成一个圈）
+                let angle = map(i, 0, burstPoints, 0, TWO_PI) - PI/2;
+                let radius = num === 0 ? 0 : 80; // 如果是0，中心爆炸；否则在半径80的圆上爆炸
+                let burstX = centerX + cos(angle) * radius;
+                let burstY = centerY + sin(angle) * radius;
+
+                // 在每个点生成一批粒子
+                for (let j = 0; j < particlesPerBurst; j++) {
+                    particles.push(new Particle(burstX, burstY, conf));
+                }
+            }
+        }
+
+        // 显示中间的大数字
+        function displayBigNumber() {
+            textAlign(CENTER, CENTER);
+            noStroke();
+            // 颜色根据置信度：高=绿色/蓝色，低=红色/橙色
+            colorMode(HSB);
+            let hue = map(resultConfidence, 0.5, 1.0, 0, 220); // 0(红) -> 220(蓝)
+            fill(hue, 80, 100); 
+            
+            textSize(150);
+            text(resultNumber, width/2, height/2);
+            
+            textSize(20);
+            fill(255);
+            text(`Confidence: ${(resultConfidence*100).toFixed(1)}%`, width/2, height/2 + 100);
+        }
+
+        // ================= 粒子类定义 =================
+        class Particle {
+            constructor(x, y, conf) {
+                this.pos = createVector(x, y);
+                // 速度：置信度越高，爆炸速度越快
+                let speed = map(conf, 0.5, 1.0, 2, 15);
+                this.vel = p5.Vector.random2D().mult(random(1, speed));
+                this.acc = createVector(0, 0);
+                // 寿命：置信度越高，存活越久
+                this.lifespan = map(conf, 0.5, 1.0, 150, 255);
+                this.decay = map(conf, 0.5, 1.0, 5, 2); // 衰减速度
+
+                // 颜色：置信度决定色相
+                colorMode(HSB);
+                this.hue = map(conf, 0.5, 1.0, 20, 200); // 橙红 -> 蓝紫
+                this.size = random(4, 12);
+            }
+
+            update() {
+                this.vel.mult(0.98); // 添加一点空气阻力
+                this.pos.add(this.vel);
+                this.lifespan -= this.decay; // 寿命递减
+            }
+
+            show() {
+                colorMode(HSB);
+                noStroke();
+                // 随着寿命减少，透明度降低
+                fill(this.hue, 90, 100, this.lifespan);
+                ellipse(this.pos.x, this.pos.y, this.size);
+            }
+
+            isDead() {
+                return this.lifespan < 0;
+            }
+        }
+    </script>
+</body>
+</html>

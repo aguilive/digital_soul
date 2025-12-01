@@ -1,0 +1,7 @@
+```text
+# .gitignore 内容
+venv/
+__pycache__/
+.DS_Store
+data/
+*.ngrok
