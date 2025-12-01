@@ -38,10 +38,13 @@ Bash
 python app.py
 服务默认运行在 http://0.0.0.0:5000
 
-文件结构
+```markdown
+```text
 ├── train.py          # 模型训练脚本 (CNN架构定义)
 ├── app.py            # Flask 后端服务 (推理 + 图像预处理)
 ├── index.html        # 前端交互界面 (p5.js 粒子特效)
 ├── mnist_cnn.pth     # 预训练好的模型权重
 └── README.md         # 项目文档
+```
+
 ![Demo](screenshot.png)
